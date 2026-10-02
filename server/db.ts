@@ -50,7 +50,7 @@ function initSupabaseClient(): SupabaseClient {
 export const supabase: SupabaseClient = initSupabaseClient();
 
 // Helper to generate a 768-dimensional normalized pseudo-vector based on text tokens
-function createEmbedding(text: string): number[] {
+export function createEmbedding(text: string): number[] {
   const dim = 768;
   const vector = new Array(dim).fill(0);
   const clean = text.toLowerCase().replace(/[^a-z0-9 ]/g, ' ');
@@ -600,6 +600,78 @@ class SupabaseStore {
 
     scored.sort((a, b) => b.similarity - a.similarity);
     return scored.slice(0, match_count);
+  }
+
+  // Insert batch of newly uploaded/extracted slides directly into Supabase
+  insertSlideBatch(newSlides: Array<{
+    course_code: string;
+    document_name: string;
+    page_number: number;
+    title: string;
+    tags: string[];
+    content: string;
+    embedding: number[];
+  }>): SlideEmbedding[] {
+    const savedSlides: SlideEmbedding[] = [];
+    const baseId = Date.now();
+
+    for (let i = 0; i < newSlides.length; i++) {
+      const item = newSlides[i];
+      const course = this.findCourse(item.course_code);
+      const course_id = course ? course.id : `c-${item.course_code.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+
+      const slide: SlideEmbedding = {
+        id: baseId + i,
+        course_id,
+        course_code: course ? course.code : item.course_code.toUpperCase(),
+        document_name: item.document_name,
+        page_number: item.page_number,
+        title: item.title,
+        tags: item.tags || [],
+        content: item.content,
+        embedding: item.embedding
+      };
+
+      // Check if page already exists for this document
+      const existingIdx = this.slides.findIndex(s =>
+        s.document_name === slide.document_name && s.page_number === slide.page_number
+      );
+
+      if (existingIdx !== -1) {
+        this.slides[existingIdx] = slide;
+      } else {
+        this.slides.push(slide);
+      }
+      savedSlides.push(slide);
+    }
+
+    // Sync to remote Supabase slide_embeddings
+    (async () => {
+      try {
+        const records = savedSlides.map(s => ({
+          id: s.id,
+          course_id: s.course_id,
+          course_code: s.course_code,
+          document_name: s.document_name,
+          page_number: s.page_number,
+          title: s.title,
+          tags: s.tags,
+          content: s.content,
+          embedding: s.embedding
+        }));
+
+        const { error } = await supabase.from('slide_embeddings').upsert(records);
+        if (error) {
+          console.log(`[Supabase] Slide batch cached locally (Remote note: ${error.message})`);
+        } else {
+          console.log(`[Supabase] Synced ${savedSlides.length} slides to remote Supabase slide_embeddings.`);
+        }
+      } catch (err: any) {
+        console.warn('[Supabase] Remote slide sync error:', err?.message || err);
+      }
+    })();
+
+    return savedSlides;
   }
 
   // 2. TOOL: supabase_upsert_task

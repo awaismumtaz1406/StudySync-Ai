@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Course, SlideEmbedding } from '../types.js';
+import { safeFetchJson } from '../api.js';
 import { Search, Sparkles, Filter, Layers, BookOpen, ChevronRight } from 'lucide-react';
 
 interface VectorSearchExplorerProps {
@@ -26,7 +27,7 @@ export const VectorSearchExplorer: React.FC<VectorSearchExplorerProps> = ({
     if (e) e.preventDefault();
     setIsSearching(true);
     try {
-      const res = await fetch('/api/vector-search', {
+      const data = await safeFetchJson('/api/vector-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -37,8 +38,7 @@ export const VectorSearchExplorer: React.FC<VectorSearchExplorerProps> = ({
           end_page: endBound ? parseInt(endBound, 10) : undefined
         })
       });
-      const data = await res.json();
-      if (data.matches) {
+      if (data && data.matches) {
         setResults(data.matches);
         if (data.matches.length > 0) {
           onSelectSlide(data.matches[0]);

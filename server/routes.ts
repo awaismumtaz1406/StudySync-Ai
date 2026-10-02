@@ -1,7 +1,14 @@
 import { Router, Request, Response } from 'express';
+import multer from 'multer';
 import { dbStore } from './db.js';
 import { executeReActCycle } from './reactEngine.js';
 import { umtSyncService } from './umtSync.js';
+import { processAndUploadSlideDeck } from './slideUpload.js';
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 } // 50MB
+});
 
 export const apiRouter = Router();
 
@@ -72,6 +79,84 @@ apiRouter.post('/vector-search', (req: Request, res: Response) => {
   } catch (error: any) {
     res.status(500).json({ error: error?.message || 'Search failed' });
   }
+});
+
+// Core slide upload processing routine
+async function handleSlideUploadCore(req: Request, res: Response) {
+  try {
+    let fileBuffer: Buffer | null = null;
+    let fileName = 'Uploaded_Lecture_Slides.pdf';
+    let courseCode = (req.body?.course_code || req.body?.courseCode || 'CS-402').trim();
+
+    if (req.file && req.file.buffer) {
+      fileBuffer = req.file.buffer;
+      fileName = req.file.originalname || fileName;
+    } else if (req.body?.fileBase64) {
+      // Support base64 upload
+      const base64Str = String(req.body.fileBase64).replace(/^data:.*?;base64,/, '').trim();
+      fileBuffer = Buffer.from(base64Str, 'base64');
+      if (req.body.fileName) fileName = req.body.fileName;
+    }
+
+    if (!fileBuffer || fileBuffer.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No valid file provided. Please attach a PDF or PPTX file via FormData (field "file") or JSON fileBase64.'
+      });
+    }
+
+    const result = await processAndUploadSlideDeck({
+      buffer: fileBuffer,
+      fileName,
+      courseCode
+    });
+
+    return res.status(200).json({
+      success: true,
+      documentName: result.documentName,
+      courseCode: result.courseCode,
+      totalPages: result.totalPages,
+      slides: result.slides,
+      message: result.message,
+      database: {
+        courses: dbStore.getCourses(),
+        slides: dbStore.getSlides(),
+        tasks: dbStore.getTasks(),
+        dispatches: dbStore.getDispatches(),
+        supabase: dbStore.getSupabaseStatus()
+      }
+    });
+  } catch (error: any) {
+    console.error('[Slide Upload API Error]:', error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to process slide deck upload'
+    });
+  }
+}
+
+// Lecture Slides Upload Endpoint (Extracts page-by-page text, generates 768-dim embeddings via Gemini, inserts into Supabase)
+apiRouter.post(['/slides/upload', '/slides/upload/'], (req: Request, res: Response) => {
+  // Always guarantee JSON response header
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+
+  const contentType = req.headers['content-type'] || '';
+  if (contentType.includes('application/json')) {
+    // Process JSON base64 payload directly without multer
+    return handleSlideUploadCore(req, res);
+  }
+
+  // Handle multipart form-data via multer with explicit error containment
+  upload.single('file')(req, res, (err: any) => {
+    if (err) {
+      console.warn('[Multer Warning]:', err?.message || err);
+      return res.status(400).json({
+        success: false,
+        error: `File upload error: ${err?.message || 'Invalid upload stream or file size exceeded limit'}`
+      });
+    }
+    return handleSlideUploadCore(req, res);
+  });
 });
 
 // Create task manually

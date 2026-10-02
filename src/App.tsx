@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { safeFetchJson } from './api.js';
 import { Header } from './components/Header.js';
 import { ChatWorkspace } from './components/ChatWorkspace.js';
 import { SlideViewer } from './components/SlideViewer.js';
@@ -42,9 +43,8 @@ export default function App() {
   // Fetch initial database state from backend
   const fetchDatabaseState = async () => {
     try {
-      const res = await fetch('/api/database');
-      const data = await res.json();
-      if (data.courses) {
+      const data = await safeFetchJson('/api/database');
+      if (data && data.courses) {
         setDatabase(data);
         if (data.slides && data.slides.length > 0 && !selectedSlide) {
           // Default to Slide 5 of CS-402 (Minimax & Adversarial Search)
@@ -62,7 +62,7 @@ export default function App() {
   }, []);
 
   // Handle student message submission
-  const handleSendMessage = async (userText: string, channel: 'whatsapp' | 'email') => {
+  const handleSendMessage = async (userText: string, channel: 'whatsapp' | 'email' = 'whatsapp') => {
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
       sender: 'user',
@@ -74,7 +74,7 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      const res = await fetch('/api/chat', {
+      const data = await safeFetchJson('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -83,9 +83,7 @@ export default function App() {
         })
       });
 
-      const data = await res.json();
-
-      if (data.success) {
+      if (data && data.success) {
         const assistantMsg: ChatMessage = {
           id: `msg-${Date.now()}-ai`,
           sender: 'assistant',
@@ -154,9 +152,8 @@ export default function App() {
   const handleResetData = async () => {
     setIsResetting(true);
     try {
-      const res = await fetch('/api/reset-data', { method: 'POST' });
-      const data = await res.json();
-      if (data.database) {
+      const data = await safeFetchJson('/api/reset-data', { method: 'POST' });
+      if (data && data.database) {
         setDatabase(data.database);
         if (data.database.slides.length > 0) {
           setSelectedSlide(data.database.slides[0]);
@@ -172,9 +169,8 @@ export default function App() {
   // Toggle task status
   const handleToggleTaskStatus = async (taskId: string) => {
     try {
-      const res = await fetch(`/api/tasks/${taskId}/toggle`, { method: 'PATCH' });
-      const data = await res.json();
-      if (data.success && data.task) {
+      const data = await safeFetchJson(`/api/tasks/${taskId}/toggle`, { method: 'PATCH' });
+      if (data && data.success && data.task) {
         setDatabase(prev => ({
           ...prev,
           tasks: prev.tasks.map(t => (t.id === taskId ? data.task : t))
@@ -194,13 +190,12 @@ export default function App() {
     slide_range?: number[];
   }) => {
     try {
-      const res = await fetch('/api/tasks', {
+      const data = await safeFetchJson('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(taskData)
       });
-      const data = await res.json();
-      if (data.success && data.task) {
+      if (data && data.success && data.task) {
         setDatabase(prev => ({
           ...prev,
           tasks: [data.task, ...prev.tasks]
@@ -214,13 +209,12 @@ export default function App() {
   // Trigger dispatch alert
   const handleTriggerDispatch = async (dispatchId: string) => {
     try {
-      const res = await fetch('/api/dispatches/trigger', {
+      const data = await safeFetchJson('/api/dispatches/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: dispatchId })
       });
-      const data = await res.json();
-      if (data.success && data.dispatch) {
+      if (data && data.success && data.dispatch) {
         setDatabase(prev => ({
           ...prev,
           dispatches: prev.dispatches.map(d => (d.id === dispatchId ? data.dispatch : d))
@@ -331,7 +325,24 @@ export default function App() {
           {/* Tab Content Display Area */}
           <div className="flex-1 overflow-hidden">
             {activeTab === 'viewer' && (
-              <SlideViewer slide={selectedSlide} />
+              <SlideViewer
+                slides={database.slides}
+                selectedSlide={selectedSlide}
+                onSelectSlide={slide => setSelectedSlide(slide)}
+                onUploadSuccess={(newSlides, newDb) => {
+                  if (newDb) {
+                    setDatabase(newDb);
+                  } else {
+                    setDatabase(prev => ({
+                      ...prev,
+                      slides: [...newSlides, ...prev.slides.filter(s => !newSlides.some(n => n.id === s.id))]
+                    }));
+                  }
+                }}
+                onAskAboutSlide={slide => {
+                  handleSendMessage(`Bhai ye slide samjha de: "${slide.title}" (${slide.course_code}, Slide #${slide.page_number})`);
+                }}
+              />
             )}
 
             {activeTab === 'search' && (

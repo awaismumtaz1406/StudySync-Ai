@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { UmtSyncStatus } from '../types.js';
+import { safeFetchJson } from '../api.js';
 import {
   Calendar,
   RefreshCw,
@@ -41,9 +42,8 @@ export const UmtSyncModal: React.FC<UmtSyncModalProps> = ({
   const fetchStatus = async () => {
     setIsLoadingStatus(true);
     try {
-      const res = await fetch('/api/umt/status');
-      const data = await res.json();
-      if (data.status) {
+      const data = await safeFetchJson('/api/umt/status');
+      if (data && data.status) {
         setStatus(data.status);
         setIcalUrl(data.status.config.icalUrl || DEFAULT_DEMO_URL);
         setAutoSyncEnabled(data.status.config.autoSyncEnabled);
@@ -67,14 +67,13 @@ export const UmtSyncModal: React.FC<UmtSyncModalProps> = ({
     setIsSyncing(true);
     setFeedbackMsg(null);
     try {
-      const res = await fetch('/api/umt/sync', {
+      const data = await safeFetchJson('/api/umt/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: icalUrl })
       });
-      const data = await res.json();
 
-      if (data.result && data.result.success) {
+      if (data && data.result && data.result.success) {
         setFeedbackMsg({
           type: 'success',
           text: data.result.message || 'Successfully synchronized with UMT LMS calendar!'
@@ -84,7 +83,7 @@ export const UmtSyncModal: React.FC<UmtSyncModalProps> = ({
       } else {
         setFeedbackMsg({
           type: 'error',
-          text: data.result?.message || data.error || 'Failed to sync with UMT LMS'
+          text: data?.result?.message || data?.error || 'Failed to sync with UMT LMS'
         });
       }
     } catch (err: any) {
@@ -99,7 +98,7 @@ export const UmtSyncModal: React.FC<UmtSyncModalProps> = ({
 
   const handleSaveConfig = async () => {
     try {
-      const res = await fetch('/api/umt/config', {
+      const data = await safeFetchJson('/api/umt/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -108,8 +107,7 @@ export const UmtSyncModal: React.FC<UmtSyncModalProps> = ({
           syncIntervalMinutes: syncInterval
         })
       });
-      const data = await res.json();
-      if (data.status) {
+      if (data && data.status) {
         setStatus(data.status);
         setFeedbackMsg({
           type: 'success',

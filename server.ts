@@ -8,11 +8,24 @@ import { umtSyncService } from './server/umtSync.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function resolvePort(): number {
+  const portArgIndex = process.argv.indexOf('--port');
+  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
+    return parseInt(process.argv[portArgIndex + 1], 10);
+  }
+  if (process.env.PORT && process.env.PORT !== '8080') {
+    return parseInt(process.env.PORT, 10);
+  }
+  return 3000;
+}
+
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const PORT = resolvePort();
 
-  app.use(express.json());
+  // Support up to 50MB payloads for large presentation slides & PDFs
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
   // Mount API endpoints
   app.use('/api', apiRouter);
@@ -24,6 +37,27 @@ async function startServer() {
       service: 'StudySync AI Backend',
       timestamp: '2026-09-29T03:49:40-07:00'
     });
+  });
+
+  // Explicit API 404 handler: guarantees /api and /api/* requests never fall through to SPA HTML
+  app.all(['/api', '/api/*'], (req, res) => {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.status(404).json({
+      success: false,
+      error: `API route not found: ${req.method} ${req.originalUrl}`
+    });
+  });
+
+  // Explicit API Error Handler: catches any unhandled errors under /api and returns JSON
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (req.originalUrl?.startsWith('/api') || req.path?.startsWith('/api')) {
+      console.error('[API Unhandled Error]:', err);
+      return res.status(err.status || 500).json({
+        success: false,
+        error: err?.message || 'Internal server error occurred processing API request'
+      });
+    }
+    next(err);
   });
 
   const isProduction = process.env.NODE_ENV === 'production';
