@@ -1,0 +1,7 @@
+{
+  "name": "StudySync AI - Autonomous Academic Copilot & ReAct Engine",
+  "description": "Autonomous academic copilot and ReAct reasoning engine for university students. Parses Roman Urdu and English campus vernacular, performs vector slide search via Supabase pgvector, schedules academic tasks, and dispatches WhatsApp and Email alerts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
